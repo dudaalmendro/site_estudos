@@ -419,7 +419,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const provider = cleanText(process.env.AI_PROVIDER || "openai").toLowerCase();
+    const provider = cleanText(process.env.AI_PROVIDER || "openrouter").toLowerCase();
     const result =
       provider === "openrouter"
         ? await generateWithOpenRouter(topic, notes, count)
