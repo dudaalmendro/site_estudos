@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
@@ -10,7 +10,17 @@ function hasValue(value: string | undefined) {
 export async function GET() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const hasSupabaseServiceKey = hasValue(
+    process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY
+  );
+  const hasSupabasePublicKey = hasValue(
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
   const hasSupabase = Boolean(
     supabaseUrl?.startsWith("https://") && hasValue(supabaseKey)
   );
@@ -19,7 +29,10 @@ export async function GET() {
   let supabaseError = "";
 
   if (hasSupabase) {
-    const { error } = await supabaseAdmin
+    const supabase = createClient(supabaseUrl || "", supabaseKey || "", {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+    const { error } = await supabase
       .from("studyagent_app_state")
       .select("key")
       .limit(1);
@@ -36,7 +49,8 @@ export async function GET() {
       openRouterModel: process.env.OPENROUTER_MODEL || "",
       hasOpenAiKey: hasValue(process.env.OPENAI_API_KEY),
       hasSupabaseUrl: Boolean(supabaseUrl?.startsWith("https://")),
-      hasSupabaseServiceKey: hasValue(supabaseKey),
+      hasSupabaseServiceKey,
+      hasSupabasePublicKey,
       siteUrl: process.env.NEXT_PUBLIC_SITE_URL || "",
     },
     supabase: {

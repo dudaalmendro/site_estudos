@@ -186,7 +186,7 @@ async function loadStoredState() {
       };
     }
 
-    return {
+  return {
       state: localState,
       syncMessage:
         json.reason ||
@@ -201,8 +201,20 @@ async function loadStoredState() {
   }
 }
 
+function isEmptyStudyState(nextState: StudyState) {
+  return (
+    nextState.folders.length === 0 &&
+    nextState.cards.length === 0 &&
+    nextState.history.length === 0
+  );
+}
+
 async function saveStoredState(nextState: StudyState) {
   localStorage.setItem(storageKey, JSON.stringify(nextState));
+
+  if (isEmptyStudyState(nextState)) {
+    return true;
+  }
 
   try {
     const response = await fetch("/api/study-state", {

@@ -1,26 +1,46 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
 const stateKey = "shared-study-state";
 
-function hasSupabaseAdminConfig() {
+function getSupabaseConfig() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SECRET_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  return Boolean(
-    url &&
-      key &&
-      url.startsWith("https://") &&
+  const configured = Boolean(
+    url?.startsWith("https://") &&
       url.endsWith(".supabase.co") &&
-      key !== "missing-secret-key" &&
-      key.length > 20
+      key &&
+      key.length > 20 &&
+      !key.includes("missing")
   );
+
+  return { url, key, configured };
+}
+
+function getSupabaseClient() {
+  const { url, key, configured } = getSupabaseConfig();
+
+  if (!configured || !url || !key) return null;
+
+  return createClient(url, key, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
 }
 
 export async function GET() {
-  if (!hasSupabaseAdminConfig()) {
+  const supabase = getSupabaseClient();
+
+  if (!supabase) {
     return NextResponse.json({
       ok: false,
       state: null,
@@ -29,7 +49,7 @@ export async function GET() {
     });
   }
 
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await supabase
     .from("studyagent_app_state")
     .select("data")
     .eq("key", stateKey)
@@ -46,7 +66,9 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  if (!hasSupabaseAdminConfig()) {
+  const supabase = getSupabaseClient();
+
+  if (!supabase) {
     return NextResponse.json({
       ok: false,
       saved: false,
@@ -61,7 +83,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Estado invalido." }, { status: 400 });
   }
 
-  const { error } = await supabaseAdmin.from("studyagent_app_state").upsert({
+  const { error } = await supabase.from("studyagent_app_state").upsert({
     key: stateKey,
     data: body.state,
     updated_at: new Date().toISOString(),
