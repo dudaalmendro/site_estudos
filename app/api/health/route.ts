@@ -46,3 +46,35 @@ export async function GET() {
     },
   });
 }
+
+export async function POST() {
+  if (!hasValue(process.env.OPENROUTER_API_KEY)) {
+    return NextResponse.json(
+      { ok: false, error: "OPENROUTER_API_KEY ausente." },
+      { status: 500 }
+    );
+  }
+
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
+      "X-Title": "MedStudy AI",
+    },
+    body: JSON.stringify({
+      model: process.env.OPENROUTER_MODEL || "openrouter/free",
+      messages: [{ role: "user", content: "Responda apenas ok" }],
+      max_tokens: 20,
+    }),
+  });
+
+  const text = await response.text();
+
+  return NextResponse.json({
+    ok: response.ok,
+    status: response.status,
+    sample: text.slice(0, 500),
+  });
+}

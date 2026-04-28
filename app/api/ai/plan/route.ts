@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import mammoth from "mammoth";
 import OpenAI from "openai";
-import { PDFParse } from "pdf-parse";
-import { pathToFileURL } from "node:url";
-import path from "node:path";
 
 export const runtime = "nodejs";
 
-function configurePdfWorker() {
+async function getPdfParser() {
+  const [{ PDFParse }, { pathToFileURL }, path] = await Promise.all([
+    import("pdf-parse"),
+    import("node:url"),
+    import("node:path"),
+  ]);
   const workerPath = path.join(
     process.cwd(),
     "node_modules",
@@ -18,6 +19,7 @@ function configurePdfWorker() {
   );
 
   PDFParse.setWorker(pathToFileURL(workerPath).href);
+  return PDFParse;
 }
 
 async function extractFileText(file: File) {
@@ -25,7 +27,7 @@ async function extractFileText(file: File) {
   const fileName = file.name.toLowerCase();
 
   if (fileName.endsWith(".pdf")) {
-    configurePdfWorker();
+    const PDFParse = await getPdfParser();
     const parser = new PDFParse({ data: buffer });
     const data = await parser.getText();
     await parser.destroy();
@@ -33,6 +35,7 @@ async function extractFileText(file: File) {
   }
 
   if (fileName.endsWith(".docx")) {
+    const mammoth = await import("mammoth");
     const data = await mammoth.extractRawText({ buffer });
     return data.value;
   }
