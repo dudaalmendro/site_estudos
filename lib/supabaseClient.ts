@@ -11,7 +11,7 @@ export const hasSupabaseConfig = Boolean(
     !supabaseUrl.includes("sua_url") &&
     supabaseUrl.startsWith("https://") &&
     supabaseUrl.endsWith(".supabase.co") &&
-    supabasePublishableKey.startsWith("sb_publishable_")
+    supabasePublishableKey.length > 20
 );
 
 export const supabase = createClient(

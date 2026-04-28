@@ -27,12 +27,6 @@ import {
   WandSparkles,
   XCircle,
 } from "lucide-react";
-import {
-  loadFirebaseStudyState,
-  saveFirebaseStudyState,
-  type StudyState,
-} from "@/lib/firebaseStudyStore";
-
 type Rating = "again" | "easy" | "hard" | "wrong";
 type StudyTab = "review" | "create" | "manual";
 
@@ -66,6 +60,12 @@ type ReviewLog = {
   rating: Rating;
   createdAt: string;
   nextReviewAt: string;
+};
+
+type StudyState = {
+  folders: StudyFolder[];
+  cards: Flashcard[];
+  history: ReviewLog[];
 };
 
 const storageKey = "studyagent_flashcards_v2";
@@ -170,25 +170,42 @@ async function loadStoredState() {
   const localState = readState();
 
   try {
-    const firebaseState = await loadFirebaseStudyState();
+    const response = await fetch("/api/study-state", { cache: "no-store" });
+    const json = (await response.json()) as {
+      error?: string;
+      state?: StudyState | null;
+      sync?: "remote" | "local";
+      reason?: string;
+    };
 
-    if (firebaseState) {
-      localStorage.setItem(storageKey, JSON.stringify(firebaseState));
+    if (response.ok && json.state) {
+      localStorage.setItem(storageKey, JSON.stringify(json.state));
       return {
-        state: firebaseState,
-        syncMessage: "Memoria online ativa com Firebase.",
+        state: json.state,
+        syncMessage: "Memoria online ativa com Supabase.",
+      };
+    }
+
+    if (response.ok && json.sync === "remote") {
+      return {
+        state: localState,
+        syncMessage:
+          "Supabase conectado. Ainda nao havia historico salvo online.",
       };
     }
 
     return {
       state: localState,
-      syncMessage: "Firebase conectado. Ainda nao havia historico salvo online.",
+      syncMessage:
+        json.error ||
+        json.reason ||
+        "Supabase nao esta ativo; usando este navegador.",
     };
   } catch {
     return {
       state: localState,
       syncMessage:
-        "Firebase indisponivel; usando este navegador ate as regras serem ajustadas.",
+        "Nao consegui verificar o Supabase; usando este navegador por enquanto.",
     };
   }
 }
@@ -212,17 +229,38 @@ async function saveStoredState(nextState: StudyState) {
   }
 
   try {
-    await saveFirebaseStudyState(nextState);
+    const response = await fetch("/api/study-state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state: nextState }),
+    });
+    const json = (await response.json()) as {
+      error?: string;
+      saved?: boolean;
+      reason?: string;
+      sync?: "remote" | "local";
+    };
+
+    if (response.ok && json.saved === true) {
+      return {
+        saved: true,
+        message: "Memoria online salva no Supabase.",
+      };
+    }
+
     return {
-      saved: true,
-      message: "Memoria online salva no Firebase.",
+      saved: false,
+      message:
+        json.error ||
+        json.reason ||
+        "Supabase indisponivel; usando este navegador.",
     };
   } catch {
     // Local storage still keeps the current browser usable if remote sync fails.
     return {
       saved: false,
       message:
-        "Nao consegui salvar no Firebase; confira as regras do Firestore.",
+        "Nao consegui salvar no Supabase; confira variaveis e tabela.",
     };
   }
 }
