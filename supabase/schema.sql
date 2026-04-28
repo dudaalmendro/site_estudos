@@ -98,3 +98,9 @@ on public.flashcards(user_id, folder_id, created_at desc);
 
 create index if not exists flashcard_answers_user_created_idx
 on public.flashcard_answers(user_id, created_at desc);
+
+create table if not exists public.studyagent_app_state (
+  key text primary key,
+  data jsonb not null,
+  updated_at timestamptz not null default now()
+);

@@ -225,6 +225,17 @@ Crie flashcards bons para revisao ativa. Cada resposta deve ser curta, correta e
   ];
 }
 
+function buildOpenRouterMessages(topic: string, notes: string, count: number) {
+  return [
+    ...buildMessages(topic, notes, count),
+    {
+      role: "user" as const,
+      content:
+        'Responda somente com JSON puro, sem markdown, no formato {"flashcards":[{"question":"...","answer":"...","topic":"...","difficulty":"facil","review_days":1}]}.',
+    },
+  ];
+}
+
 function parseJsonObject(text: string) {
   const cleaned = text
     .trim()
@@ -263,46 +274,83 @@ async function generateWithOpenRouter(topic: string, notes: string, count: numbe
   }
 
   const model = process.env.OPENROUTER_MODEL || "openrouter/free";
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000",
-      "X-Title": "MedStudy AI",
-    },
-    body: JSON.stringify({
-      model,
-      messages: buildMessages(topic, notes, count),
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "ai_study_flashcards",
-          strict: true,
-          schema: flashcardJsonSchema,
-        },
+  const referer = process.env.NEXT_PUBLIC_SITE_URL?.startsWith("http")
+    ? process.env.NEXT_PUBLIC_SITE_URL
+    : "http://localhost:3000";
+
+  async function request(useSchema: boolean) {
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": referer,
+        "X-Title": "MedStudy AI",
       },
-    }),
-  });
+      body: JSON.stringify({
+        model,
+        messages: useSchema
+          ? buildMessages(topic, notes, count)
+          : buildOpenRouterMessages(topic, notes, count),
+        ...(useSchema
+          ? {
+              response_format: {
+                type: "json_schema",
+                json_schema: {
+                  name: "ai_study_flashcards",
+                  strict: true,
+                  schema: flashcardJsonSchema,
+                },
+              },
+            }
+          : {}),
+      }),
+    });
 
-  const data = (await response.json()) as OpenRouterChatResponse;
+    const data = (await response.json()) as OpenRouterChatResponse;
 
-  if (!response.ok || data.error) {
-    throw new Error(
-      data.error?.message ||
-        `OpenRouter recusou a requisicao com status ${response.status}.`
-    );
+    if (!response.ok || data.error) {
+      throw new Error(
+        data.error?.message ||
+          `OpenRouter recusou a requisicao com status ${response.status}.`
+      );
+    }
+
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error("OpenRouter nao retornou conteudo para os flashcards.");
+    }
+
+    return {
+      model,
+      flashcards: normalizeFlashcards(parseJsonObject(content), topic, count),
+    };
   }
 
-  const content = data.choices?.[0]?.message?.content;
-  if (!content) {
-    throw new Error("OpenRouter nao retornou conteudo para os flashcards.");
-  }
+  try {
+    return await request(true);
+  } catch (error) {
+    const message = error instanceof Error ? error.message.toLowerCase() : "";
+    const shouldRetryWithoutSchema =
+      message.includes("expected pattern") ||
+      message.includes("response_format") ||
+      message.includes("json_schema") ||
+      message.includes("schema");
 
-  return {
-    model,
-    flashcards: normalizeFlashcards(parseJsonObject(content), topic, count),
-  };
+    if (!shouldRetryWithoutSchema) {
+      throw error;
+    }
+
+    try {
+      return await request(false);
+    } catch (retryError) {
+      throw new Error(
+        retryError instanceof Error
+          ? retryError.message
+          : "OpenRouter nao conseguiu gerar JSON valido."
+      );
+    }
+  }
 }
 
 async function generateWithOpenAI(topic: string, notes: string, count: number) {

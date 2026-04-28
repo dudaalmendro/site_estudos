@@ -167,6 +167,38 @@ function readState() {
   }
 }
 
+async function loadStoredState() {
+  const localState = readState();
+
+  try {
+    const response = await fetch("/api/study-state", { cache: "no-store" });
+    const json = (await response.json()) as { state?: StudyState | null };
+
+    if (response.ok && json.state) {
+      localStorage.setItem(storageKey, JSON.stringify(json.state));
+      return json.state;
+    }
+  } catch {
+    return localState;
+  }
+
+  return localState;
+}
+
+async function saveStoredState(nextState: StudyState) {
+  localStorage.setItem(storageKey, JSON.stringify(nextState));
+
+  try {
+    await fetch("/api/study-state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ state: nextState }),
+    });
+  } catch {
+    // Local storage still keeps the current browser usable if remote sync fails.
+  }
+}
+
 export default function FlashStudyApp() {
   const [mounted, setMounted] = useState(false);
   const [state, setState] = useState<StudyState>(emptyState);
@@ -191,13 +223,14 @@ export default function FlashStudyApp() {
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
-      const data = readState();
-      const loadedAt = new Date().toISOString();
-      setState(data);
-      setSelectedFolderId(data.folders[0]?.id || "");
-      setManualFolderId(data.folders[0]?.id || "");
-      setCurrentTime(new Date(loadedAt).getTime());
-      setMounted(true);
+      void loadStoredState().then((data) => {
+        const loadedAt = new Date().toISOString();
+        setState(data);
+        setSelectedFolderId(data.folders[0]?.id || "");
+        setManualFolderId(data.folders[0]?.id || "");
+        setCurrentTime(new Date(loadedAt).getTime());
+        setMounted(true);
+      });
     }, 0);
 
     return () => window.clearTimeout(timeoutId);
@@ -205,7 +238,11 @@ export default function FlashStudyApp() {
 
   useEffect(() => {
     if (!mounted) return;
-    localStorage.setItem(storageKey, JSON.stringify(state));
+    const timeoutId = window.setTimeout(() => {
+      void saveStoredState(state);
+    }, 500);
+
+    return () => window.clearTimeout(timeoutId);
   }, [mounted, state]);
 
   const selectedFolder = state.folders.find((folder) => folder.id === selectedFolderId);
