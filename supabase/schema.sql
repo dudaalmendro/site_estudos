@@ -104,3 +104,36 @@ create table if not exists public.studyagent_app_state (
   data jsonb not null,
   updated_at timestamptz not null default now()
 );
+
+alter table public.studyagent_app_state enable row level security;
+
+drop policy if exists "Public can read shared study state"
+on public.studyagent_app_state;
+
+create policy "Public can read shared study state"
+on public.studyagent_app_state
+for select
+to anon, authenticated
+using (true);
+
+drop policy if exists "Public can write shared study state"
+on public.studyagent_app_state;
+
+create policy "Public can write shared study state"
+on public.studyagent_app_state
+for insert
+to anon, authenticated
+with check (key = 'shared-study-state');
+
+drop policy if exists "Public can update shared study state"
+on public.studyagent_app_state;
+
+create policy "Public can update shared study state"
+on public.studyagent_app_state
+for update
+to anon, authenticated
+using (key = 'shared-study-state')
+with check (key = 'shared-study-state');
+
+grant usage on schema public to anon, authenticated;
+grant select, insert, update on public.studyagent_app_state to anon, authenticated;

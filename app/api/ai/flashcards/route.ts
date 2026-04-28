@@ -280,6 +280,10 @@ function normalizeFlashcards(
   }));
 }
 
+function hasEnvValue(value: string | undefined) {
+  return Boolean(value && value.length > 8 && !value.includes("missing"));
+}
+
 async function generateWithOpenRouter(topic: string, notes: string, count: number) {
   if (!process.env.OPENROUTER_API_KEY) {
     throw new Error(
@@ -423,11 +427,32 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const provider = cleanText(process.env.AI_PROVIDER || "openrouter").toLowerCase();
+    const preferredProvider = cleanText(
+      process.env.AI_PROVIDER || "openrouter"
+    ).toLowerCase();
+    const hasOpenRouter = hasEnvValue(process.env.OPENROUTER_API_KEY);
+    const hasOpenAi = hasEnvValue(process.env.OPENAI_API_KEY);
+    const provider =
+      preferredProvider === "openai" && hasOpenAi
+        ? "openai"
+        : preferredProvider === "openrouter" && hasOpenRouter
+        ? "openrouter"
+        : hasOpenRouter
+        ? "openrouter"
+        : hasOpenAi
+        ? "openai"
+        : preferredProvider;
+
+    if (!hasOpenRouter && !hasOpenAi) {
+      throw new Error(
+        "Nenhuma chave de IA configurada. Adicione OPENROUTER_API_KEY ou OPENAI_API_KEY na Vercel."
+      );
+    }
+
     const result =
-      provider === "openrouter"
-        ? await generateWithOpenRouter(topic, notes, count)
-        : await generateWithOpenAI(topic, notes, count);
+      provider === "openai"
+        ? await generateWithOpenAI(topic, notes, count)
+        : await generateWithOpenRouter(topic, notes, count);
 
     return NextResponse.json({
       ok: true,
