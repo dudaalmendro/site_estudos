@@ -81,8 +81,16 @@ Nao use a senha do banco. Nao precisa de login para esse app simples.
 
 ```txt
 NEXT_PUBLIC_SUPABASE_URL=sua_project_url
-NEXT_PUBLIC_SUPABASE_ANON_KEY=sua_chave_anon_ou_publishable
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sua_chave_publishable
 ```
+
+Se o seu Supabase mostrar a chave como `anon public`, tambem pode usar:
+
+```txt
+NEXT_PUBLIC_SUPABASE_ANON_KEY=sua_chave_anon_public
+```
+
+Nao precisa colocar `Secret keys` na Vercel para esse salvamento simples.
 
 6. Marque `Production` e `Preview`.
 7. Salve.
