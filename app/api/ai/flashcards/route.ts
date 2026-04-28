@@ -282,7 +282,9 @@ function normalizeFlashcards(
 
 async function generateWithOpenRouter(topic: string, notes: string, count: number) {
   if (!process.env.OPENROUTER_API_KEY) {
-    throw new Error("OPENROUTER_API_KEY nao configurada no .env.local.");
+    throw new Error(
+      "OPENROUTER_API_KEY nao configurada neste ambiente. Na Vercel, adicione a variavel tambem em Preview ou use o dominio de Production."
+    );
   }
 
   const model = process.env.OPENROUTER_MODEL || "openrouter/free";
@@ -369,7 +371,9 @@ async function generateWithOpenRouter(topic: string, notes: string, count: numbe
 
 async function generateWithOpenAI(topic: string, notes: string, count: number) {
   if (!process.env.OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY nao configurada no .env.local.");
+    throw new Error(
+      "OPENAI_API_KEY nao configurada neste ambiente. Se estiver usando OpenRouter, configure AI_PROVIDER=openrouter e OPENROUTER_API_KEY na Vercel."
+    );
   }
 
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
