@@ -27,6 +27,11 @@ import {
   WandSparkles,
   XCircle,
 } from "lucide-react";
+import {
+  loadFirebaseStudyState,
+  saveFirebaseStudyState,
+  type StudyState,
+} from "@/lib/firebaseStudyStore";
 
 type Rating = "again" | "easy" | "hard" | "wrong";
 type StudyTab = "review" | "create" | "manual";
@@ -61,12 +66,6 @@ type ReviewLog = {
   rating: Rating;
   createdAt: string;
   nextReviewAt: string;
-};
-
-type StudyState = {
-  folders: StudyFolder[];
-  cards: Flashcard[];
-  history: ReviewLog[];
 };
 
 const storageKey = "studyagent_flashcards_v2";
@@ -171,42 +170,25 @@ async function loadStoredState() {
   const localState = readState();
 
   try {
-    const response = await fetch("/api/study-state", { cache: "no-store" });
-    const json = (await response.json()) as {
-      error?: string;
-      state?: StudyState | null;
-      sync?: "remote" | "local";
-      reason?: string;
-    };
+    const firebaseState = await loadFirebaseStudyState();
 
-    if (response.ok && json.state) {
-      localStorage.setItem(storageKey, JSON.stringify(json.state));
+    if (firebaseState) {
+      localStorage.setItem(storageKey, JSON.stringify(firebaseState));
       return {
-        state: json.state,
-        syncMessage: "Sincronizacao remota ativa.",
-      };
-    }
-
-    if (response.ok && json.sync === "remote") {
-      return {
-        state: localState,
-        syncMessage:
-          "Sincronizacao remota ativa. Ainda nao havia historico salvo no banco.",
+        state: firebaseState,
+        syncMessage: "Memoria online ativa com Firebase.",
       };
     }
 
     return {
       state: localState,
-      syncMessage:
-        json.error ||
-        json.reason ||
-        "Sincronizacao remota nao esta ativa; os dados ficam neste navegador.",
+      syncMessage: "Firebase conectado. Ainda nao havia historico salvo online.",
     };
   } catch {
     return {
       state: localState,
       syncMessage:
-        "Nao consegui verificar o salvamento remoto; usando este navegador.",
+        "Firebase indisponivel; usando este navegador ate as regras serem ajustadas.",
     };
   }
 }
@@ -230,37 +212,17 @@ async function saveStoredState(nextState: StudyState) {
   }
 
   try {
-    const response = await fetch("/api/study-state", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ state: nextState }),
-    });
-    const json = (await response.json()) as {
-      error?: string;
-      saved?: boolean;
-      reason?: string;
-      sync?: "remote" | "local";
-    };
-
-    if (response.ok && json.saved === true) {
-      return {
-        saved: true,
-        message: "Sincronizacao remota ativa.",
-      };
-    }
-
+    await saveFirebaseStudyState(nextState);
     return {
-      saved: false,
-      message:
-        json.error ||
-        json.reason ||
-        "Salvamento remoto indisponivel; usando este navegador.",
+      saved: true,
+      message: "Memoria online salva no Firebase.",
     };
   } catch {
     // Local storage still keeps the current browser usable if remote sync fails.
     return {
       saved: false,
-      message: "Nao consegui conectar ao salvamento remoto; usando este navegador.",
+      message:
+        "Nao consegui salvar no Firebase; confira as regras do Firestore.",
     };
   }
 }
