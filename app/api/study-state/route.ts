@@ -14,13 +14,19 @@ function hasSupabaseAdminConfig() {
       key &&
       url.startsWith("https://") &&
       url.endsWith(".supabase.co") &&
-      key.startsWith("sb_secret_")
+      key !== "missing-secret-key" &&
+      key.length > 20
   );
 }
 
 export async function GET() {
   if (!hasSupabaseAdminConfig()) {
-    return NextResponse.json({ ok: false, state: null });
+    return NextResponse.json({
+      ok: false,
+      state: null,
+      sync: "local",
+      reason: "Supabase nao configurado no ambiente.",
+    });
   }
 
   const { data, error } = await supabaseAdmin
@@ -30,15 +36,23 @@ export async function GET() {
     .maybeSingle();
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message, sync: "local" },
+      { status: 500 }
+    );
   }
 
-  return NextResponse.json({ ok: true, state: data?.data || null });
+  return NextResponse.json({ ok: true, state: data?.data || null, sync: "remote" });
 }
 
 export async function POST(req: NextRequest) {
   if (!hasSupabaseAdminConfig()) {
-    return NextResponse.json({ ok: false, saved: false });
+    return NextResponse.json({
+      ok: false,
+      saved: false,
+      sync: "local",
+      reason: "Supabase nao configurado no ambiente.",
+    });
   }
 
   const body = (await req.json()) as { state?: unknown };
@@ -54,8 +68,11 @@ export async function POST(req: NextRequest) {
   });
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message, sync: "local" },
+      { status: 500 }
+    );
   }
 
-  return NextResponse.json({ ok: true, saved: true });
+  return NextResponse.json({ ok: true, saved: true, sync: "remote" });
 }

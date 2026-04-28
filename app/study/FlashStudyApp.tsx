@@ -172,30 +172,49 @@ async function loadStoredState() {
 
   try {
     const response = await fetch("/api/study-state", { cache: "no-store" });
-    const json = (await response.json()) as { state?: StudyState | null };
+    const json = (await response.json()) as {
+      state?: StudyState | null;
+      sync?: "remote" | "local";
+      reason?: string;
+    };
 
     if (response.ok && json.state) {
       localStorage.setItem(storageKey, JSON.stringify(json.state));
-      return json.state;
+      return {
+        state: json.state,
+        syncMessage: "Sincronizacao remota ativa.",
+      };
     }
-  } catch {
-    return localState;
-  }
 
-  return localState;
+    return {
+      state: localState,
+      syncMessage:
+        json.reason ||
+        "Sincronizacao remota nao esta ativa; os dados ficam neste navegador.",
+    };
+  } catch {
+    return {
+      state: localState,
+      syncMessage:
+        "Nao consegui verificar o salvamento remoto; usando este navegador.",
+    };
+  }
 }
 
 async function saveStoredState(nextState: StudyState) {
   localStorage.setItem(storageKey, JSON.stringify(nextState));
 
   try {
-    await fetch("/api/study-state", {
+    const response = await fetch("/api/study-state", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ state: nextState }),
     });
+
+    return response.ok;
   } catch {
     // Local storage still keeps the current browser usable if remote sync fails.
+    return false;
   }
 }
 
@@ -219,15 +238,18 @@ export default function FlashStudyApp() {
   const [sessionLimit, setSessionLimit] = useState(10);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  const [syncMessage, setSyncMessage] = useState("");
   const [currentTime, setCurrentTime] = useState(0);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
-      void loadStoredState().then((data) => {
+      void loadStoredState().then((loaded) => {
+        const data = loaded.state;
         const loadedAt = new Date().toISOString();
         setState(data);
         setSelectedFolderId(data.folders[0]?.id || "");
         setManualFolderId(data.folders[0]?.id || "");
+        setSyncMessage(loaded.syncMessage);
         setCurrentTime(new Date(loadedAt).getTime());
         setMounted(true);
       });
@@ -239,7 +261,13 @@ export default function FlashStudyApp() {
   useEffect(() => {
     if (!mounted) return;
     const timeoutId = window.setTimeout(() => {
-      void saveStoredState(state);
+      void saveStoredState(state).then((saved) => {
+        setSyncMessage(
+          saved
+            ? "Sincronizacao remota ativa."
+            : "Salvamento remoto indisponivel; usando este navegador."
+        );
+      });
     }, 500);
 
     return () => window.clearTimeout(timeoutId);
@@ -734,6 +762,11 @@ export default function FlashStudyApp() {
           {message && (
             <div className="rounded-[8px] border border-stone-200 bg-white px-4 py-3 text-sm font-bold text-stone-700">
               {message}
+            </div>
+          )}
+          {syncMessage && (
+            <div className="rounded-[8px] border border-blue-100 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-900/75">
+              {syncMessage}
             </div>
           )}
 

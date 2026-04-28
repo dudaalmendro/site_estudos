@@ -163,6 +163,7 @@ function readableAiError(error: unknown) {
   if (!(error instanceof Error)) return "Erro interno ao chamar a IA.";
 
   const maybe = error as Error & { status?: number; code?: string };
+  const message = error.message.toLowerCase();
 
   if (maybe.status === 401) {
     return "Chave de IA invalida. Confira OPENROUTER_API_KEY ou OPENAI_API_KEY no .env.local.";
@@ -170,6 +171,14 @@ function readableAiError(error: unknown) {
 
   if (maybe.status === 429 || maybe.code === "insufficient_quota") {
     return "A IA recusou por limite/cota. Se estiver usando OpenRouter gratuito, espere o limite resetar ou troque de modelo; se estiver usando OpenAI, confira billing/creditos.";
+  }
+
+  if (
+    message.includes("expected pattern") ||
+    message.includes("json") ||
+    message.includes("schema")
+  ) {
+    return "A IA gratuita retornou um formato inesperado. Tente novamente ou troque OPENROUTER_MODEL para outro modelo gratuito/disponivel.";
   }
 
   if (maybe.status && maybe.status >= 500) {
@@ -331,11 +340,13 @@ async function generateWithOpenRouter(topic: string, notes: string, count: numbe
     return await request(true);
   } catch (error) {
     const message = error instanceof Error ? error.message.toLowerCase() : "";
+    const status = (error as Error & { status?: number }).status;
     const shouldRetryWithoutSchema =
-      message.includes("expected pattern") ||
-      message.includes("response_format") ||
-      message.includes("json_schema") ||
-      message.includes("schema");
+      status !== 401 &&
+      status !== 429 &&
+      !message.includes("quota") &&
+      !message.includes("auth") &&
+      !message.includes("key");
 
     if (!shouldRetryWithoutSchema) {
       throw error;
