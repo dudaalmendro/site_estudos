@@ -173,6 +173,7 @@ async function loadStoredState() {
   try {
     const response = await fetch("/api/study-state", { cache: "no-store" });
     const json = (await response.json()) as {
+      error?: string;
       state?: StudyState | null;
       sync?: "remote" | "local";
       reason?: string;
@@ -186,9 +187,18 @@ async function loadStoredState() {
       };
     }
 
-  return {
+    if (response.ok && json.sync === "remote") {
+      return {
+        state: localState,
+        syncMessage:
+          "Sincronizacao remota ativa. Ainda nao havia historico salvo no banco.",
+      };
+    }
+
+    return {
       state: localState,
       syncMessage:
+        json.error ||
         json.reason ||
         "Sincronizacao remota nao esta ativa; os dados ficam neste navegador.",
     };
@@ -213,7 +223,10 @@ async function saveStoredState(nextState: StudyState) {
   localStorage.setItem(storageKey, JSON.stringify(nextState));
 
   if (isEmptyStudyState(nextState)) {
-    return true;
+    return {
+      saved: true,
+      message: "Nenhum historico para sincronizar ainda.",
+    };
   }
 
   try {
@@ -222,11 +235,33 @@ async function saveStoredState(nextState: StudyState) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ state: nextState }),
     });
+    const json = (await response.json()) as {
+      error?: string;
+      saved?: boolean;
+      reason?: string;
+      sync?: "remote" | "local";
+    };
 
-    return response.ok;
+    if (response.ok && json.saved === true) {
+      return {
+        saved: true,
+        message: "Sincronizacao remota ativa.",
+      };
+    }
+
+    return {
+      saved: false,
+      message:
+        json.error ||
+        json.reason ||
+        "Salvamento remoto indisponivel; usando este navegador.",
+    };
   } catch {
     // Local storage still keeps the current browser usable if remote sync fails.
-    return false;
+    return {
+      saved: false,
+      message: "Nao consegui conectar ao salvamento remoto; usando este navegador.",
+    };
   }
 }
 
@@ -273,12 +308,8 @@ export default function FlashStudyApp() {
   useEffect(() => {
     if (!mounted) return;
     const timeoutId = window.setTimeout(() => {
-      void saveStoredState(state).then((saved) => {
-        setSyncMessage(
-          saved
-            ? "Sincronizacao remota ativa."
-            : "Salvamento remoto indisponivel; usando este navegador."
-        );
+      void saveStoredState(state).then((result) => {
+        setSyncMessage(result.message);
       });
     }, 500);
 

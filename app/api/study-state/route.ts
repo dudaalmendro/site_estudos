@@ -41,12 +41,15 @@ export async function GET() {
   const supabase = getSupabaseClient();
 
   if (!supabase) {
-    return NextResponse.json({
-      ok: false,
-      state: null,
-      sync: "local",
-      reason: "Supabase nao configurado no ambiente.",
-    });
+    return NextResponse.json(
+      {
+        ok: false,
+        state: null,
+        sync: "local",
+        reason: "Supabase nao configurado no ambiente.",
+      },
+      { status: 503 }
+    );
   }
 
   const { data, error } = await supabase
@@ -69,12 +72,15 @@ export async function POST(req: NextRequest) {
   const supabase = getSupabaseClient();
 
   if (!supabase) {
-    return NextResponse.json({
-      ok: false,
-      saved: false,
-      sync: "local",
-      reason: "Supabase nao configurado no ambiente.",
-    });
+    return NextResponse.json(
+      {
+        ok: false,
+        saved: false,
+        sync: "local",
+        reason: "Supabase nao configurado no ambiente.",
+      },
+      { status: 503 }
+    );
   }
 
   const body = (await req.json()) as { state?: unknown };
