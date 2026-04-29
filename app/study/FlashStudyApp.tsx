@@ -10,7 +10,6 @@ import {
   Check,
   ChevronRight,
   Clock3,
-  FileText,
   Folder,
   FolderPlus,
   History,
@@ -23,7 +22,6 @@ import {
   Stethoscope,
   ThumbsUp,
   Trash2,
-  Upload,
   WandSparkles,
   XCircle,
 } from "lucide-react";
@@ -271,8 +269,11 @@ export default function FlashStudyApp() {
   const [activeTab, setActiveTab] = useState<StudyTab>("review");
   const [topic, setTopic] = useState("");
   const [notes, setNotes] = useState("");
-  const [files, setFiles] = useState<File[]>([]);
   const [count, setCount] = useState(10);
+  const [aiFolderMode, setAiFolderMode] = useState<"existing" | "new">(
+    "existing"
+  );
+  const [aiFolderId, setAiFolderId] = useState("");
   const [manualQuestion, setManualQuestion] = useState("");
   const [manualAnswer, setManualAnswer] = useState("");
   const [manualFolderMode, setManualFolderMode] = useState<"existing" | "new">(
@@ -295,6 +296,7 @@ export default function FlashStudyApp() {
         const loadedAt = new Date().toISOString();
         setState(data);
         setSelectedFolderId(data.folders[0]?.id || "");
+        setAiFolderId(data.folders[0]?.id || "");
         setManualFolderId(data.folders[0]?.id || "");
         setSyncMessage(loaded.syncMessage);
         setCurrentTime(new Date(loadedAt).getTime());
@@ -358,11 +360,22 @@ export default function FlashStudyApp() {
   }
 
   async function generateFlashcards() {
-    const cleanTopic = normalizeTopic(topic);
+    let folder: StudyFolder | undefined;
+    let cleanTopic = normalizeTopic(topic);
 
-    if (!cleanTopic) {
-      setMessage("Escolha um tema para a IA criar os flashcards.");
-      return;
+    if (aiFolderMode === "existing") {
+      folder = state.folders.find((item) => item.id === aiFolderId);
+      if (!folder) {
+        setMessage("Escolha uma pasta existente para receber os flashcards.");
+        return;
+      }
+      cleanTopic = cleanTopic || folder.name;
+    } else {
+      if (!cleanTopic) {
+        setMessage("Digite o nome da nova pasta para a IA criar os flashcards.");
+        return;
+      }
+      folder = findOrCreateFolder(cleanTopic);
     }
 
     setLoading(true);
@@ -373,7 +386,6 @@ export default function FlashStudyApp() {
       formData.append("topic", cleanTopic);
       formData.append("notes", notes);
       formData.append("count", String(count));
-      files.forEach((file) => formData.append("files", file));
 
       const response = await fetch("/api/ai/flashcards", {
         method: "POST",
@@ -385,7 +397,6 @@ export default function FlashStudyApp() {
         throw new Error(json.error || "Nao consegui gerar com IA agora.");
       }
 
-      const folder = findOrCreateFolder(cleanTopic);
       const createdAt = new Date().toISOString();
       const newCards = (json.flashcards || []).map((card: AiFlashcard) => ({
         ...card,
@@ -406,11 +417,11 @@ export default function FlashStudyApp() {
         history: current.history,
       }));
       setSelectedFolderId(folder.id);
+      setAiFolderId(folder.id);
       setSessionLimit(10);
       setRevealed({});
       setTopic("");
       setNotes("");
-      setFiles([]);
       setCurrentTime(new Date(createdAt).getTime());
       setActiveTab("review");
       setMessage(`${newCards.length} flashcards criados na pasta ${folder.name}.`);
@@ -469,6 +480,7 @@ export default function FlashStudyApp() {
         : [folder, ...current.folders],
     }));
     setSelectedFolderId(folder.id);
+    setAiFolderId(folder.id);
     setMessage(`Pasta ${folder.name} pronta.`);
   }
 
@@ -496,6 +508,11 @@ export default function FlashStudyApp() {
     if (selectedFolderId === folder.id) {
       const nextFolder = state.folders.find((item) => item.id !== folder.id);
       setSelectedFolderId(nextFolder?.id || "");
+    }
+
+    if (aiFolderId === folder.id) {
+      const nextFolder = state.folders.find((item) => item.id !== folder.id);
+      setAiFolderId(nextFolder?.id || "");
     }
 
       setMessage(`Pasta ${folder.name} excluida.`);
@@ -705,7 +722,7 @@ export default function FlashStudyApp() {
             </div>
             <div className="space-y-3">
               {[
-                ["1", "Crie revisoes com tema, texto e arquivos."],
+                ["1", "Escolha uma pasta ou crie um novo tema."],
                 ["2", "A IA monta cards de pergunta e resposta."],
                 ["3", "Revise por lotes de 10 e agende pelo desempenho."],
               ].map(([step, text]) => (
@@ -845,23 +862,79 @@ export default function FlashStudyApp() {
                   Criar revisao
                 </div>
                 <h2 className="text-3xl font-black text-blue-950">
-                  Novo tema com texto e arquivos
+                  Flashcards por IA
                 </h2>
                 <p className="mt-2 font-medium text-slate-600">
-                  Cole anotacoes, envie materiais e escolha quantos flashcards a IA deve
-                  gerar para a pasta do tema.
+                  Escolha uma pasta existente ou crie uma nova, cole o contexto em
+                  texto e defina quantos cards a IA deve gerar.
                 </p>
               </div>
 
               <div className="grid gap-4 lg:grid-cols-[1fr_260px]">
                 <div className="space-y-4">
+                  <div>
+                    <span className="text-sm font-bold text-blue-900/70">
+                      Onde salvar
+                    </span>
+                    <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                      <button
+                        onClick={() => setAiFolderMode("existing")}
+                        className={`h-11 rounded-[8px] border text-sm font-black transition ${
+                          aiFolderMode === "existing"
+                            ? "border-blue-950 bg-blue-950 text-white"
+                            : "border-blue-200 bg-white text-blue-950 hover:bg-blue-50"
+                        }`}
+                      >
+                        Pasta existente
+                      </button>
+                      <button
+                        onClick={() => setAiFolderMode("new")}
+                        className={`h-11 rounded-[8px] border text-sm font-black transition ${
+                          aiFolderMode === "new"
+                            ? "border-blue-950 bg-blue-950 text-white"
+                            : "border-blue-200 bg-white text-blue-950 hover:bg-blue-50"
+                        }`}
+                      >
+                        Nova pasta
+                      </button>
+                    </div>
+                  </div>
+
+                  {aiFolderMode === "existing" ? (
+                    <label className="block">
+                      <span className="text-sm font-bold text-blue-900/70">
+                        Escolher pasta
+                      </span>
+                      <select
+                        value={aiFolderId}
+                        onChange={(event) => setAiFolderId(event.target.value)}
+                        className="mt-2 h-12 w-full rounded-[8px] border border-blue-200 bg-blue-50/40 px-4 font-semibold outline-none focus:border-blue-700"
+                      >
+                        <option value="">Selecione uma pasta</option>
+                        {state.folders.map((folder) => (
+                          <option key={folder.id} value={folder.id}>
+                            {folder.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : null}
+
                   <label className="block">
-                    <span className="text-sm font-bold text-blue-900/70">Tema</span>
+                    <span className="text-sm font-bold text-blue-900/70">
+                      {aiFolderMode === "existing"
+                        ? "Foco da geracao"
+                        : "Nome da nova pasta"}
+                    </span>
                     <input
                       value={topic}
                       onChange={(event) => setTopic(event.target.value)}
                       className="mt-2 h-12 w-full rounded-[8px] border border-blue-200 bg-blue-50/40 px-4 font-semibold outline-none focus:border-blue-700"
-                      placeholder="Ex: Cardiologia, anatomia renal, sepse"
+                      placeholder={
+                        aiFolderMode === "existing"
+                          ? "Opcional: ex. valvopatias, ECG, insuficiencia cardiaca"
+                          : "Ex: Cardiologia, anatomia renal, sepse"
+                      }
                     />
                   </label>
 
@@ -876,53 +949,6 @@ export default function FlashStudyApp() {
                       placeholder="Cole resumo, topicos da prova, caso clinico ou nivel desejado."
                     />
                   </label>
-
-                  <label className="flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-[8px] border border-dashed border-blue-300 bg-blue-50/60 px-4 py-5 text-center hover:bg-blue-50">
-                    <Upload size={24} className="text-blue-800" />
-                    <span className="mt-2 font-black text-blue-950">
-                      Adicionar arquivos
-                    </span>
-                    <span className="mt-1 text-sm font-medium text-slate-600">
-                      PDF, DOCX ou TXT entram como contexto da IA
-                    </span>
-                    <input
-                      className="hidden"
-                      type="file"
-                      multiple
-                      accept=".pdf,.docx,.txt,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                      onChange={(event) =>
-                        setFiles(Array.from(event.target.files || []))
-                      }
-                    />
-                  </label>
-
-                  {files.length > 0 && (
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      {files.map((file) => (
-                        <div
-                          key={`${file.name}-${file.size}-${file.lastModified}`}
-                          className="flex min-h-11 items-center justify-between gap-2 rounded-[8px] border border-blue-100 bg-white px-3 text-sm font-bold text-slate-700"
-                        >
-                          <span className="flex min-w-0 items-center gap-2">
-                            <FileText size={16} className="shrink-0 text-blue-800" />
-                            <span className="truncate">{file.name}</span>
-                          </span>
-                          <button
-                            onClick={() =>
-                              setFiles((current) =>
-                                current.filter((item) => item !== file)
-                              )
-                            }
-                            className="flex size-8 shrink-0 items-center justify-center rounded-[8px] text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                            title="Remover arquivo"
-                            aria-label={`Remover ${file.name}`}
-                          >
-                            <XCircle size={16} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
 
                 <div className="rounded-[8px] border border-blue-100 bg-blue-50/50 p-4">
