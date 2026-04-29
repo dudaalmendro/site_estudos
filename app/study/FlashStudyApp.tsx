@@ -14,6 +14,7 @@ import {
   FolderPlus,
   History,
   Layers3,
+  ListChecks,
   Loader2,
   Microscope,
   PencilLine,
@@ -26,7 +27,7 @@ import {
   XCircle,
 } from "lucide-react";
 type Rating = "again" | "easy" | "hard" | "wrong";
-type StudyTab = "review" | "create" | "manual";
+type StudyTab = "review" | "library" | "create" | "manual";
 
 type AiFlashcard = {
   question: string;
@@ -72,6 +73,7 @@ const ratingActions: Array<{
   id: Rating;
   label: string;
   detail: string;
+  emoji: string;
   days: number;
   icon: typeof RotateCcw;
   tone: string;
@@ -80,6 +82,7 @@ const ratingActions: Array<{
     id: "again",
     label: "De novo",
     detail: "revisar amanha",
+    emoji: "🔁",
     days: 1,
     icon: RotateCcw,
     tone: "border-indigo-300 bg-indigo-950 text-white hover:bg-indigo-900",
@@ -88,6 +91,7 @@ const ratingActions: Array<{
     id: "easy",
     label: "Facil",
     detail: "espacar revisao",
+    emoji: "👍",
     days: 6,
     icon: ThumbsUp,
     tone: "border-cyan-300 bg-cyan-600 text-white hover:bg-cyan-700",
@@ -96,6 +100,7 @@ const ratingActions: Array<{
     id: "hard",
     label: "Dificil",
     detail: "revisar em breve",
+    emoji: "⚠️",
     days: 2,
     icon: AlertTriangle,
     tone: "border-violet-300 bg-violet-600 text-white hover:bg-violet-700",
@@ -104,6 +109,7 @@ const ratingActions: Array<{
     id: "wrong",
     label: "Errado",
     detail: "volta rapido",
+    emoji: "❌",
     days: 1,
     icon: XCircle,
     tone: "border-rose-300 bg-rose-500 text-white hover:bg-rose-600",
@@ -116,6 +122,39 @@ const cardColors = [
   "from-[#ecfeff] to-[#cffafe] border-[#67e8f9]",
   "from-[#f8fafc] to-[#e0f2fe] border-[#7dd3fc]",
 ];
+
+const statusStyles = {
+  due: {
+    label: "Revisar hoje",
+    emoji: "🔁",
+    tone: "border-blue-200 bg-blue-50 text-blue-950",
+  },
+  wrong: {
+    label: "Errado",
+    emoji: "❌",
+    tone: "border-rose-200 bg-rose-50 text-rose-800",
+  },
+  again: {
+    label: "De novo",
+    emoji: "🔁",
+    tone: "border-indigo-200 bg-indigo-50 text-indigo-900",
+  },
+  hard: {
+    label: "Dificil",
+    emoji: "⚠️",
+    tone: "border-violet-200 bg-violet-50 text-violet-900",
+  },
+  easy: {
+    label: "Facil",
+    emoji: "👍",
+    tone: "border-cyan-200 bg-cyan-50 text-cyan-900",
+  },
+  new: {
+    label: "Novo",
+    emoji: "✨",
+    tone: "border-slate-200 bg-slate-50 text-slate-700",
+  },
+};
 
 function createId(prefix: string) {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -282,6 +321,7 @@ export default function FlashStudyApp() {
   const [manualFolderId, setManualFolderId] = useState("");
   const [manualFolderName, setManualFolderName] = useState("");
   const [selectedFolderId, setSelectedFolderId] = useState("");
+  const [librarySearch, setLibrarySearch] = useState("");
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [sessionLimit, setSessionLimit] = useState(10);
   const [loading, setLoading] = useState(false);
@@ -335,6 +375,21 @@ export default function FlashStudyApp() {
   const selectedCards = state.cards.filter(
     (card) => card.folderId === selectedFolderId
   );
+  const latestReviewByCard = useMemo(() => {
+    const latest = new Map<string, ReviewLog>();
+
+    state.history.forEach((item) => {
+      const current = latest.get(item.cardId);
+      if (
+        !current ||
+        new Date(item.createdAt).getTime() > new Date(current.createdAt).getTime()
+      ) {
+        latest.set(item.cardId, item);
+      }
+    });
+
+    return latest;
+  }, [state.history]);
   const sessionCards = dueCards.slice(0, sessionLimit);
   const totalReviewed = state.history.length;
   const hardReviews = state.history.filter(
@@ -343,6 +398,59 @@ export default function FlashStudyApp() {
   const mastery = totalReviewed
     ? Math.max(0, Math.round(((totalReviewed - hardReviews) / totalReviewed) * 100))
     : 0;
+  const upcomingCards = state.cards.filter(
+    (card) => new Date(card.nextReviewAt).getTime() > currentTime
+  ).length;
+  const librarySections = useMemo(() => {
+    const query = librarySearch.trim().toLowerCase();
+    const sections: Array<{
+      id: keyof typeof statusStyles;
+      title: string;
+      cards: Flashcard[];
+    }> = [
+      { id: "due", title: "Para revisar", cards: [] },
+      { id: "wrong", title: "Errados", cards: [] },
+      { id: "again", title: "De novo", cards: [] },
+      { id: "hard", title: "Dificeis", cards: [] },
+      { id: "easy", title: "Faceis", cards: [] },
+      { id: "new", title: "Novos", cards: [] },
+    ];
+    const sectionById = new Map(sections.map((section) => [section.id, section]));
+
+    state.cards.forEach((card) => {
+      const folder = state.folders.find((item) => item.id === card.folderId);
+      const searchable = `${card.question} ${card.answer} ${card.topic} ${
+        folder?.name || ""
+      }`.toLowerCase();
+
+      if (query && !searchable.includes(query)) return;
+
+      const nextReviewTime = new Date(card.nextReviewAt).getTime();
+      const latest = latestReviewByCard.get(card.id);
+      const status =
+        nextReviewTime <= currentTime
+          ? "due"
+          : latest?.rating === "wrong"
+            ? "wrong"
+            : latest?.rating === "again"
+              ? "again"
+              : latest?.rating === "hard"
+                ? "hard"
+                : latest?.rating === "easy"
+                  ? "easy"
+                  : "new";
+
+      sectionById.get(status)?.cards.push(card);
+    });
+
+    return sections.map((section) => ({
+      ...section,
+      cards: section.cards.sort(
+        (a, b) =>
+          new Date(a.nextReviewAt).getTime() - new Date(b.nextReviewAt).getTime()
+      ),
+    }));
+  }, [currentTime, latestReviewByCard, librarySearch, state.cards, state.folders]);
 
   function findOrCreateFolder(folderName: string) {
     const cleanName = normalizeTopic(folderName) || "Tema sem nome";
@@ -576,6 +684,123 @@ export default function FlashStudyApp() {
     setMessage(`Flashcard manual salvo na pasta ${folder.name}.`);
   }
 
+  function getFolderName(folderId: string) {
+    return (
+      state.folders.find((folder) => folder.id === folderId)?.name ||
+      "Pasta removida"
+    );
+  }
+
+  function openCardFolder(card: Flashcard) {
+    setSelectedFolderId(card.folderId);
+    setActiveTab("review");
+    setMessage(`Pasta ${getFolderName(card.folderId)} aberta.`);
+  }
+
+  function moveCardToToday(card: Flashcard) {
+    const now = new Date().toISOString();
+
+    setState((current) => ({
+      ...current,
+      cards: current.cards.map((item) =>
+        item.id === card.id ? { ...item, nextReviewAt: now } : item
+      ),
+    }));
+    setCurrentTime(new Date(now).getTime());
+    setSessionLimit((value) => Math.max(value, 10));
+    setActiveTab("review");
+    setMessage(`${card.topic} entrou na revisao de hoje.`);
+  }
+
+  function renderLibrarySection(section: {
+    id: keyof typeof statusStyles;
+    title: string;
+    cards: Flashcard[];
+  }) {
+    const style = statusStyles[section.id];
+
+    return (
+      <section
+        key={section.id}
+        className="rounded-[8px] border border-blue-100 bg-white shadow-sm"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-blue-50 px-4 py-3">
+          <div className="flex items-center gap-3">
+            <span className="text-xl" aria-hidden="true">
+              {style.emoji}
+            </span>
+            <div>
+              <h3 className="font-black text-blue-950">{section.title}</h3>
+              <p className="text-xs font-bold text-blue-900/55">
+                {section.cards.length} flashcards
+              </p>
+            </div>
+          </div>
+          <span
+            className={`rounded-full border px-3 py-1 text-xs font-black ${style.tone}`}
+          >
+            {style.emoji} {style.label}
+          </span>
+        </div>
+
+        {section.cards.length > 0 ? (
+          <div className="divide-y divide-blue-50">
+            {section.cards.map((card) => (
+              <article
+                key={card.id}
+                className="grid gap-3 px-4 py-3 text-sm transition hover:bg-blue-50/50 lg:grid-cols-[minmax(0,1fr)_150px_120px_170px]"
+              >
+                <div className="min-w-0">
+                  <p className="truncate font-black text-slate-950">
+                    {card.question}
+                  </p>
+                  <p className="mt-1 line-clamp-2 text-slate-600">{card.answer}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-black uppercase tracking-normal text-blue-900/45">
+                    Pasta
+                  </p>
+                  <p className="mt-1 truncate font-bold text-blue-950">
+                    {getFolderName(card.folderId)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-black uppercase tracking-normal text-blue-900/45">
+                    Proxima
+                  </p>
+                  <p className="mt-1 font-bold text-slate-700">
+                    {formatDate(card.nextReviewAt)}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                  <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-black text-blue-900">
+                    {card.reviewCount}x
+                  </span>
+                  <button
+                    onClick={() => openCardFolder(card)}
+                    className="h-9 rounded-[8px] border border-blue-200 bg-white px-3 text-xs font-black text-blue-950 hover:bg-blue-50"
+                  >
+                    Abrir
+                  </button>
+                  <button
+                    onClick={() => moveCardToToday(card)}
+                    className="h-9 rounded-[8px] bg-blue-950 px-3 text-xs font-black text-white hover:bg-blue-900"
+                  >
+                    Revisar
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="px-4 py-5 text-sm font-semibold text-slate-500">
+            Nenhum card nesta categoria.
+          </p>
+        )}
+      </section>
+    );
+  }
+
   function renderCard(card: Flashcard, index: number) {
     const isRevealed = Boolean(revealed[card.id]);
     const color = cardColors[index % cardColors.length];
@@ -638,6 +863,7 @@ export default function FlashStudyApp() {
                       className={`min-h-14 rounded-[8px] border px-3 py-2 text-left text-sm font-black transition ${action.tone}`}
                     >
                       <span className="flex items-center gap-2">
+                        <span aria-hidden="true">{action.emoji}</span>
                         <Icon size={16} />
                         {action.label}
                       </span>
@@ -698,10 +924,11 @@ export default function FlashStudyApp() {
               </p>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-4">
               {[
                 ["Pastas", `${state.folders.length} temas`],
                 ["Flashcards", `${state.cards.length} cards`],
+                ["Hoje", `${dueCards.length} revisar`],
                 ["Dominio", `${mastery}%`],
               ].map(([label, value]) => (
                 <div
@@ -830,9 +1057,10 @@ export default function FlashStudyApp() {
             </div>
           )}
 
-          <div className="grid gap-2 rounded-[8px] border border-blue-100 bg-white p-2 shadow-sm sm:grid-cols-3">
+          <div className="grid gap-2 rounded-[8px] border border-blue-100 bg-white p-2 shadow-sm sm:grid-cols-4">
             {[
               { id: "review" as const, label: "Revisao de hoje", icon: CalendarDays },
+              { id: "library" as const, label: "Biblioteca", icon: ListChecks },
               { id: "create" as const, label: "Criar revisao", icon: WandSparkles },
               { id: "manual" as const, label: "Criar manual", icon: PencilLine },
             ].map((tab) => {
@@ -853,6 +1081,62 @@ export default function FlashStudyApp() {
               );
             })}
           </div>
+
+          {activeTab === "library" && (
+            <section className="space-y-4">
+              <div className="rounded-[8px] border border-blue-100 bg-white p-5 shadow-sm">
+                <div className="flex flex-wrap items-end justify-between gap-4">
+                  <div>
+                    <div className="mb-2 flex items-center gap-2 text-sm font-black text-blue-800">
+                      <ListChecks size={17} />
+                      Biblioteca de flashcards
+                    </div>
+                    <h2 className="text-3xl font-black text-blue-950">
+                      Lista geral tipo Notion
+                    </h2>
+                    <p className="mt-2 font-medium text-slate-600">
+                      Todos os cards ficam separados por status de revisao, com
+                      atalhos para abrir a pasta ou puxar para hoje.
+                    </p>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="rounded-[8px] border border-blue-100 bg-blue-50 px-4 py-3">
+                      <p className="text-xs font-black uppercase tracking-normal text-blue-900/55">
+                        Para hoje
+                      </p>
+                      <p className="text-2xl font-black text-blue-950">
+                        {dueCards.length}
+                      </p>
+                    </div>
+                    <div className="rounded-[8px] border border-blue-100 bg-blue-50 px-4 py-3">
+                      <p className="text-xs font-black uppercase tracking-normal text-blue-900/55">
+                        Futuras
+                      </p>
+                      <p className="text-2xl font-black text-blue-950">
+                        {upcomingCards}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <label className="mt-5 block">
+                  <span className="text-sm font-bold text-blue-900/70">
+                    Buscar na lista
+                  </span>
+                  <input
+                    value={librarySearch}
+                    onChange={(event) => setLibrarySearch(event.target.value)}
+                    className="mt-2 h-12 w-full rounded-[8px] border border-blue-200 bg-blue-50/40 px-4 font-semibold outline-none focus:border-blue-700"
+                    placeholder="Buscar por pergunta, resposta, pasta ou tema"
+                  />
+                </label>
+              </div>
+
+              <div className="space-y-4">
+                {librarySections.map((section) => renderLibrarySection(section))}
+              </div>
+            </section>
+          )}
 
           {activeTab === "create" && (
             <section className="rounded-[8px] border border-blue-100 bg-white p-5 shadow-sm">
